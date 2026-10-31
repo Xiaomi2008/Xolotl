@@ -1106,7 +1106,8 @@ class ParallelService(FakeEngineCase):
         prompt = self.svc.history[[h["output_tokens"] for h in self.svc.history].index(
             max(h["output_tokens"] for h in self.svc.history))]["prompt_total"]
         self.assertGreaterEqual(u["input_tokens"], 1, u)
-        self.assertEqual(u["input_tokens"] + u["cache_read_input_tokens"], prompt, u)
+        self.assertEqual(u["input_tokens"] + u.get("cache_creation_input_tokens", 0) + u["cache_read_input_tokens"], prompt, u)
+        # (upstream #1013 reports what was read now as a cache write: input 1 + creation + read = the prompt)
         self.assertEqual(u["cache_read_input_tokens"], 3, u)    # the first read's reuse, not the continuation's
 
     def test_a_slot_request_ended_by_its_stop_token_reports_the_slot_leg(self):

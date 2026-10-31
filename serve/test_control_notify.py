@@ -132,7 +132,7 @@ class ControlNotify(unittest.TestCase):
     def test_closing_heartbeat_generator_cleans_and_notifies(self):
         e = owner()
         g = StrataEngine._take_control(e, threading.Event(), 10, after_epoch=0)
-        with mock.patch("serve.server.time.monotonic", side_effect=itertools.chain([0], itertools.repeat(11))):   # (upstream's queue deadline reads the clock more often)
+        with mock.patch("serve.server.time.monotonic", side_effect=[0, 0, 11, 11]):   # arrival stamp (upstream), beat, heartbeat check, beat reset
             self.assertIsNone(next(g))
             g.close()
         self.assertEqual(e.waiting, 1)
