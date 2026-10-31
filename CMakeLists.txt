@@ -2624,6 +2624,7 @@ if(STRATA_NATIVE_EXPERTS)
       # xolotl: ds4_expert_parity and ds4_moe_replay are defined in tools/ds4/cmake/fork.cmake (28 and 36) -
       # the fork moved them there.  GLM's branch still carried these inline copies, so the merge created
       # DUPLICATE TARGETS and the configure failed.  Removed here; fork.cmake is the single home for both.
+    endif()
     if(STRATA_ENABLE_CUDA AND STRATA_EXPERIMENTAL_SM60)
       # STRATA_EXPERT_NIBBLE (include/strata/core/expert_nibble.hpp): the 4-bit gate/up expert slots against the
       # production kernels and the GGUF blobs, bit for bit, on a real model's layers (needs a GP100); --header: the

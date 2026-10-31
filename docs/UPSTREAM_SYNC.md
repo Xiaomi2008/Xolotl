@@ -1,5 +1,10 @@
 # Staying in sync with upstream Strata (DS4 + GLM forks)
 
+> **2026-10-31:** the routine is now one command, `tools/sync-upstream.sh [--build]` (remote `niko`, a fresh
+> worktree + branch, `git rerere` replaying earlier resolutions, `tools/lost_lines.py` auditing that nothing of
+> Xolotl's was dropped).  Every conflict settled so far and the rule behind it: [FORK_PATCHES.md](FORK_PATCHES.md).
+
+
 Upstream: `upstream` = https://github.com/Niko1221/Strata (MIT).  Our forks: `deepseek4` (Strata-DS4) and `glm`
 (Strata-GLM), sharing `src/`, `include/` and the kernels.
 
