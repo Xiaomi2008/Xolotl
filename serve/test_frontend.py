@@ -3,7 +3,7 @@ import copy
 from pathlib import Path
 import unittest
 
-from serve.frontend import ChatTemplate, anthropic_to_messages, openai_to_messages
+from serve.frontend import ChatTemplate, anthropic_to_messages, openai_to_messages, require_messages
 from serve.server import ByteTokenizer, MockEngine, Service
 
 
@@ -359,3 +359,10 @@ class PreserveThinking(unittest.TestCase):
         svc.preserve_thinking = True                       # the config's default
         self.assertEqual(svc.render_prompt(messages, tools, {k: v for k, v in kwargs.items() if k != "preserve_thinking"}),
                          svc.render_prompt(messages, tools, kwargs))
+class EmptyConversation(unittest.TestCase):
+    def test_no_message_is_an_error_a_message_is_not(self):
+        with self.assertRaises(ValueError):
+            require_messages(openai_to_messages({"messages": []})[0])
+        with self.assertRaises(ValueError):
+            require_messages(openai_to_messages({})[0])
+        require_messages(openai_to_messages({"messages": [{"role": "user", "content": "hi"}]})[0])
