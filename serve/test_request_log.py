@@ -295,6 +295,7 @@ class On(unittest.TestCase):
         tok = ByteTokenizer()
         engine = ClockedEngine(tok, "</think>\n\nok", max_context=CTX)
         srv = self.server(engine)
+        srv.svc.fit_max_tokens = False   # (upstream 0.2.8 fits max_tokens by default; the 400 is the opt-out's)
         self.assertEqual(srv.post("/v1/chat/completions", chat(max_tokens=CTX * 2))[0], 400)
         row = lines(self.path, 1)[-1]
         self.assertEqual((row["status"], row["outcome"], row["error_type"]), (400, "error", "invalid_request_error"))

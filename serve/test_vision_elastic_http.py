@@ -45,7 +45,7 @@ class EncoderFailureHTTP(unittest.TestCase):
     @staticmethod
     def chat_picture():
         return {'model': 'm', 'max_tokens': 8, 'messages': [{'role': 'user', 'content': [
-            {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,eA=='}}]}]}
+            {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}}]}]}
 
     def fail_with(self, error_type):
         def fail():
@@ -65,9 +65,9 @@ class EncoderFailureHTTP(unittest.TestCase):
         cases = [
             ('/v1/chat/completions', self.chat_picture()),
             ('/v1/messages', {'model': 'm', 'max_tokens': 8, 'messages': [{'role': 'user', 'content': [
-                {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'eA=='}}]}]}),
+                {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}}]}]}),
             ('/v1/responses', {'model': 'm', 'max_output_tokens': 8, 'input': [{'role': 'user', 'content': [
-                {'type': 'input_image', 'image_url': 'data:image/png;base64,eA=='}]}]}),
+                {'type': 'input_image', 'image_url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}]}]}),
         ]
         for error_type in (RuntimeError, OSError):
             self.fail_with(error_type)
@@ -116,9 +116,9 @@ class EncoderFailureHTTP(unittest.TestCase):
             cases = [
                 ('/v1/chat/completions', self.chat_picture()),
                 ('/v1/messages', {'model': 'm', 'max_tokens': 8, 'messages': [{'role': 'user', 'content': [
-                    {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'eA=='}}]}]}),
+                    {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}}]}]}),
                 ('/v1/responses', {'model': 'm', 'max_output_tokens': 8, 'input': [{'role': 'user', 'content': [
-                    {'type': 'input_image', 'image_url': 'data:image/png;base64,eA=='}]}]}),
+                    {'type': 'input_image', 'image_url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}]}]}),
             ]
             for path, body in cases:
                 for stream in (False, True):

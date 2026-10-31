@@ -221,7 +221,7 @@ class SnapshotPoints(unittest.TestCase):
                 marked, marked_tools, _ = mark_think_literals(msgs, tools, svc.literals)
                 clean_prompt, plain_spans = unmark_think_literals(svc.render_prompt(marked, marked_tools, kw), svc.literals)
                 msgs, tools, kw = openai_to_messages(req)
-                with patch.object(tok, "encode_marked", wraps=tok.encode_marked) as encode:
+                with patch.object(tok, "encode_at_offsets", wraps=tok.encode_at_offsets) as encode:
                     actual = svc.encode_prompt(msgs, tools, kw)
                 self.assertEqual(actual, expected)
                 self.assertEqual(encode.call_args.args[0], clean_prompt)

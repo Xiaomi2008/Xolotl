@@ -338,7 +338,8 @@ class Tokenizer:
             a = b
         return out
 
-    def encode_marked(self, text: str, marks: list[int], parse_special: bool = False, plain=()) -> tuple[list[int], list[int]]:
+    def encode_at_offsets(self, text: str, marks: list[int], parse_special: bool = False, plain=()) -> tuple[list[int], list[int]]:
+        # xolotl (the client's cache-marker offsets); upstream's encode_marked below is a different call (PromptEncoder)
         """encode(), and for each character offset in `marks` the number of tokens before it - the offset taken back to
         the start of its pre-tokenizer piece (or special token) when it falls inside one, so that every position is a
         frontier of the encoding itself (pieces never merge across)."""

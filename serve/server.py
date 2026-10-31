@@ -3429,7 +3429,7 @@ class Vision:
             if key in self.cache:
                 self.cache[key] = self.cache.pop(key)                  # most recently used last
                 return self.cache[key]
-            if self.proc is None or self.proc.stdin is None:           # an elastic encoder not started yet, or one that was unloaded
+            if (self.proc is None or self.proc.stdin is None) and not getattr(self, "lazy_vision", False):   # an elastic encoder not started yet, or one that was unloaded (xolotl: a lazy one starts below)
                 raise ValueError("the picture reader is not running")
             img, out = self.dir / f"{key}.img", self.dir / f"{key}.sve"
             self.last_used = time.time()
@@ -5695,8 +5695,8 @@ class Service:
             prompt = "".join(out)
             plain = [(a - len(cache_marker) * sum(o < a for o in raw_offs),
                       b - len(cache_marker) * sum(o < b for o in raw_offs)) for a, b in plain]
-            if hasattr(self.tok, "encode_marked"):
-                ids, pos = self.tok.encode_marked(prompt, offs[-4:], parse_special=True, plain=plain)
+            if hasattr(self.tok, "encode_at_offsets"):
+                ids, pos = self.tok.encode_at_offsets(prompt, offs[-4:], parse_special=True, plain=plain)
                 self.embeddings.snaps = sorted(set(p for p in pos if 0 < p < len(ids)))
                 return ids
         if self.prompts is not None:            # #567: only what follows the last special shared with a recent prompt

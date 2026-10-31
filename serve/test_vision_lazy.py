@@ -50,7 +50,7 @@ class LazyStart(unittest.TestCase):
 
     def start(self, stdout, stderr=""):
         with mock.patch.object(server, "popen", encoder(self.log_path, stdout, stderr)), \
-                mock.patch.object(server, "contain"):
+                contextlib.nullcontext():
             self.vision.encode(PNG)
 
     def test_out_of_memory_is_named(self):
@@ -70,7 +70,7 @@ class LazyStart(unittest.TestCase):
             f.write(OOM + "cudaMalloc failed: CUDA-capable device(s) is/are busy or unavailable\n")
         with self.assertRaises(server.VisionUnavailable) as cm:
             self.start("ERR cannot open m.gguf\n")
-        self.assertEqual(str(cm.exception), "the vision encoder did not start: ERR cannot open m.gguf")
+        self.assertTrue(str(cm.exception).startswith("the vision encoder did not start: ERR cannot open m.gguf"))   # (upstream adds the exit code)
 
     def test_an_encoder_that_starts_is_used(self):
         lines = ["READY\n", "OK 3\n"]
@@ -79,7 +79,7 @@ class LazyStart(unittest.TestCase):
         def start(*a, **k):
             return SimpleNamespace(stdin=io.StringIO(), stdout=out, kill=lambda: None, wait=lambda timeout=None: 0,
                                    poll=lambda: None)
-        with mock.patch.object(server, "popen", start), mock.patch.object(server, "contain"):
+        with mock.patch.object(server, "popen", start), contextlib.nullcontext():
             path, n = self.vision.encode(PNG)
         self.assertEqual(n, 3)
         self.assertTrue(self.vision.alive())
@@ -124,7 +124,7 @@ class Http(unittest.TestCase):
                            ("/v1/messages", anthropic)):
             with self.subTest(path=path, stream=body.get("stream", False)):
                 with mock.patch.object(server, "popen", encoder(self.log_path, "[New LWP 1]\n", OOM)), \
-                        mock.patch.object(server, "contain"), contextlib.redirect_stdout(io.StringIO()):
+                        contextlib.nullcontext(), contextlib.redirect_stdout(io.StringIO()):
                     status, out = self.post(path, body)
                 self.assertEqual(status, 503)
                 self.assertIn("ran out of memory", json.dumps(out))
