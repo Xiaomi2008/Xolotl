@@ -6341,6 +6341,8 @@ class Service:
                 got = False
                 while not got:
                     if cancel.is_set():
+                        if stats is not None:                    # xolotl: the request log records a client that left while queued
+                            stats.update(finish="cancel", cancelled=True)
                         raise QueueCancelled("the client disconnected while waiting for the engine")
                     left = deadline - time.monotonic() if deadline is not None else QUEUE_BEAT_S
                     if left <= 0:
@@ -6349,6 +6351,8 @@ class Service:
                     if got:
                         if cancel.is_set():
                             self.fifo.release()
+                            if stats is not None:                    # xolotl: the request log records a client that left while queued
+                                stats.update(finish="cancel", cancelled=True)
                             raise QueueCancelled("the client disconnected while waiting for the engine")
                         if deadline is not None and time.monotonic() >= deadline:
                             self.fifo.release()
