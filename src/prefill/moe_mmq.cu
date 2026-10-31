@@ -748,6 +748,8 @@ void swiglu_clamp(const float* gu, float* h, int64_t rows, int64_t n_ff, bool in
     if (rows <= 0) return;
     swiglu_clamp_kernel<<<blocks(rows * n_ff), 256, 0, (cudaStream_t) stream>>>(gu, h, rows, n_ff, interleaved, limit);
     ck(cudaGetLastError(), "swiglu_clamp");
+}
+
 bool swiglu_quant_ok(int t) {
 #if !defined(__HIPCC__) && defined(STRATA_EXPERIMENTAL_SM60)
     // the q8_1 D4 rows quantize() writes for a down product's H (K 640)

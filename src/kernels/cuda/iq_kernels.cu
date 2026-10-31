@@ -6290,6 +6290,8 @@ void native_expert_lora_down(const NativeExpertLora& lora, const int32_t* ent_ex
     lora_down_kernel<<<(unsigned) n, 256, 0, (cudaStream_t) stream>>>(ent_exp, ent_dst, lora.a_d, lora.b_d, h, n_ff, n_embd,
                                                                       lora.n_experts, 0, n, out);
     check("native_expert_lora_down");
+}
+
 void native_expert_set_expdec(int on) { g_expdec = on ? 1 : 0; }
 int native_expert_expdec() { return expdec_mode(); }
 void native_expert_set_expdec_params(const NativeExpertExpdecParams& p) {

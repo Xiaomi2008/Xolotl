@@ -371,7 +371,7 @@ class Tokenizer:
         n = len(out)
         return out, [got.get(k, n) for k in range(len(marks))]
 
-    def _encode_matching(self, text: str, pat, plain=()) -> list[int]:
+    def _encode_matching(self, text: str, pat, plain=(), marks=None) -> list[int]:
         """Encode `text`, emitting any literal `pat` matches as single tokens and BPE-ing the rest.
 
         The split happens on the RAW text, before the byte mapping, because a special token's string is a
