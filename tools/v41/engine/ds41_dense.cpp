@@ -371,6 +371,12 @@ struct Ds41Dense::Impl {
     }
     ggml_tensor * W(const std::string & n) const { return w.get(n); }
     ggml_tensor * BL(int64_t il, const std::string & s) const { return w.get("blk." + std::to_string(il) + "." + s); }
+    // the Engram gate weight q_norm * k_norm [D, HC]: an upstream llama.cpp GGUF stores the product (engram_gate)
+    ggml_tensor * engram_wqk(ggml_context * gc, int64_t il) const {
+        const std::string g = "blk." + std::to_string(il) + ".engram_gate.weight";
+        if (w.has(g)) return w.get(g);
+        return ggml_mul(gc, BL(il, "engram_q_norm.weight"), BL(il, "engram_k_norm.weight"));
+    }
     // the router as the prediction graphs read it: the STRATA_PRED_ROUTER copy when the loader made one, else the F32
     ggml_tensor * BLpred(int64_t il) const {
         const auto it = w.t.find("blk." + std::to_string(il) + ".ffn_gate_inp_pred.weight");
@@ -394,9 +400,13 @@ static bool load_weights(Ds41Dense::Impl & im, std::string & err) {
     const bool lc = ds41_is_llamacpp_gguf(model);
     auto canon = [&](const TensorInfo & ti) { return lc ? ds41_canonical_name(ti.name) : ti.name; };
     auto lc_type = [&](const TensorInfo & ti) -> int {   // -1 = keep the file's
-        if (!lc || (ggml_type) ti.type != GGML_TYPE_BF16) return -1;
+        if (!lc) return -1;
         const std::string n = canon(ti);
         auto ends = [&](const char * x) { const size_t L = std::strlen(x); return n.size() >= L && n.compare(n.size() - L, L, x) == 0; };
+        // upstream's engram_gate is an operand of an F32 multiply like the q_norm / k_norm it replaces: F32 whatever the
+        // quantizer stored
+        if (ends("engram_gate.weight")) return (ggml_type) ti.type == GGML_TYPE_F32 ? -1 : GGML_TYPE_F32;
+        if ((ggml_type) ti.type != GGML_TYPE_BF16) return -1;
         return ends("ffn_gate_inp.weight") || ends("engram_q_norm.weight") || ends("engram_k_norm.weight") ? GGML_TYPE_F32 : GGML_TYPE_F16;
     };
     auto make = [&](const TensorInfo & ti, int type = -1) {   // type: the in-memory type (default the file's)
@@ -430,7 +440,10 @@ static bool load_weights(Ds41Dense::Impl & im, std::string & err) {
         if (l < 0) return true;
         return l >= im.layer_lo && l < im.layer_hi;
     };
-    auto skip = [&](const std::string & n) { return is_routed(n) || n == "token_embd.weight" || !in_dense_range(n); };
+    // per_layer_token_embd: an upstream llama.cpp GGUF's Engram tables (~100+ GB) - Ds41Engram reads the tables
+    auto skip = [&](const std::string & n) {
+        return is_routed(n) || n == "token_embd.weight" || n == "per_layer_token_embd.weight" || !in_dense_range(n);
+    };
     if (im.cpu) {
         for (size_t s = 0; s < model.size(); ++s) {
             const GgufFile & sh = model.shard(s);
@@ -968,14 +981,18 @@ static ggml_cgraph * build_attn(Ds41Dense::Impl & im, ggml_context * gc, int il,
         ggml_tensor * kv = ggml_mul_mat(gc, im.BL(il, "engram_kv.weight"), rows);          // [(HC+1) D, n]
         ggml_tensor * key = ggml_view_3d(gc, kv, D, HC, n, (size_t) D * 4, kv->nb[1], 0);
         ggml_tensor * val = ggml_view_3d(gc, kv, D, 1, n, (size_t) D * 4, kv->nb[1], (size_t) HC * D * 4);
-        ggml_tensor * wqk = ggml_mul(gc, im.BL(il, "engram_q_norm.weight"), im.BL(il, "engram_k_norm.weight"));   // [D, HC]
+        // The folded upstream gate uses the reference multiplication order and sign(0)=+1;
+        // keep the older separate q/k graph's rounding unchanged.
+        const bool folded_gate = im.w.has("blk." + std::to_string(il) + ".engram_gate.weight");
+        ggml_tensor * wqk = im.engram_wqk(gc, il);   // [D, HC]
         ggml_tensor * hn = ggml_rms_norm(gc, x, (float) G.rms_eps);
         ggml_tensor * kn = ggml_rms_norm(gc, ggml_cont(gc, key), (float) G.rms_eps);
-        ggml_tensor * dot = ggml_sum_rows(gc, ggml_mul(gc, ggml_mul(gc, hn, wqk), kn));    // [1, HC, n]
+        ggml_tensor * dot = ggml_sum_rows(gc, folded_gate ? ggml_mul(gc, ggml_mul(gc, hn, kn), wqk) : ggml_mul(gc, ggml_mul(gc, hn, wqk), kn));    // [1, HC, n]
         dot = ggml_scale(gc, dot, 1.0f / std::sqrt((float) D));
         // gate = sigmoid(sign(dot) * sqrt(max(|dot|, 1e-6)))  (signed sqrt, as the training kernel)
         ggml_tensor * mag = ggml_sqrt(gc, ggml_clamp(gc, ggml_abs(gc, dot), 1e-6f, INFINITY));
-        ggml_tensor * gate = ggml_sigmoid(gc, ggml_mul(gc, ggml_sgn(gc, dot), mag));
+        ggml_tensor * sign = folded_gate ? ggml_scale_bias(gc, ggml_step(gc, ggml_neg(gc, dot)), -2.0f, 1.0f) : ggml_sgn(gc, dot);
+        ggml_tensor * gate = ggml_sigmoid(gc, ggml_mul(gc, sign, mag));
         if (im.vision && im.i_img) {   // image positions take no Engram contribution (model.py: gate masked_fill ~token_mask)
             ggml_tensor * m = ggml_reshape_3d(gc, b.v1(im.i_img, n, (size_t) col0 * 4), 1, 1, n);
             gate = ggml_mul(gc, gate, ggml_scale_bias(gc, m, -1.0f, 1.0f));   // gate * (1 - image)
@@ -1384,12 +1401,16 @@ static ggml_cgraph * build_attn_kv_only(Ds41Dense::Impl & im, ggml_context * gc,
         ggml_tensor * kv = ggml_mul_mat(gc, im.BL(il, "engram_kv.weight"), rows);
         ggml_tensor * key = ggml_view_3d(gc, kv, D, HC, n, (size_t) D * 4, kv->nb[1], 0);
         ggml_tensor * val = ggml_view_3d(gc, kv, D, 1, n, (size_t) D * 4, kv->nb[1], (size_t) HC * D * 4);
-        ggml_tensor * wqk = ggml_mul(gc, im.BL(il, "engram_q_norm.weight"), im.BL(il, "engram_k_norm.weight"));
+        // The folded upstream gate uses the reference multiplication order and sign(0)=+1;
+        // keep the older separate q/k graph's rounding unchanged.
+        const bool folded_gate = im.w.has("blk." + std::to_string(il) + ".engram_gate.weight");
+        ggml_tensor * wqk = im.engram_wqk(gc, il);
         ggml_tensor * hn = ggml_rms_norm(gc, x, (float) G.rms_eps);
         ggml_tensor * kn = ggml_rms_norm(gc, ggml_cont(gc, key), (float) G.rms_eps);
-        ggml_tensor * dot = ggml_scale(gc, ggml_sum_rows(gc, ggml_mul(gc, ggml_mul(gc, hn, wqk), kn)), 1.0f / std::sqrt((float) D));
+        ggml_tensor * dot = ggml_scale(gc, ggml_sum_rows(gc, folded_gate ? ggml_mul(gc, ggml_mul(gc, hn, kn), wqk) : ggml_mul(gc, ggml_mul(gc, hn, wqk), kn)), 1.0f / std::sqrt((float) D));
         ggml_tensor * mag = ggml_sqrt(gc, ggml_clamp(gc, ggml_abs(gc, dot), 1e-6f, INFINITY));
-        ggml_tensor * gate = ggml_sigmoid(gc, ggml_mul(gc, ggml_sgn(gc, dot), mag));
+        ggml_tensor * sign = folded_gate ? ggml_scale_bias(gc, ggml_step(gc, ggml_neg(gc, dot)), -2.0f, 1.0f) : ggml_sgn(gc, dot);
+        ggml_tensor * gate = ggml_sigmoid(gc, ggml_mul(gc, sign, mag));
         if (im.vision && im.i_img) {   // image positions take no Engram contribution (model.py: gate masked_fill ~token_mask)
             ggml_tensor * m = ggml_reshape_3d(gc, b.v1(im.i_img, n, (size_t) col0 * 4), 1, 1, n);
             gate = ggml_mul(gc, gate, ggml_scale_bias(gc, m, -1.0f, 1.0f));

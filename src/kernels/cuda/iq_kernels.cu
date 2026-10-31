@@ -8,6 +8,7 @@
 #include "strata/core/expert_nibble.hpp"
 #include "strata/core/sm75_series.hpp"
 #include "strata/core/sm120_series.hpp"
+#include "strata/kernels/native_expert_registry.hpp"
 #include "strata/kernels/gfx_arch.hpp"
 #include "strata/kernels/dp4a.hpp"
 #include "strata/kernels/q8_1_finite.hpp"
@@ -840,23 +841,16 @@ STRATA_TQP_FMT(148)
 STRATA_TQP_FMT(149)
 #undef STRATA_TQP_FMT
 
-// The formats of each role, one list each so a type cannot be in one switch and missing from another.  Every
-// entry is a kernel template for each CUDA architecture of the build, hence two lists rather than one.
-#ifdef STRATA_Q6K_EXPERTS   // opt-in build (-DSTRATA_Q6K_EXPERTS=ON): one more instance per kernel, loaded at start
-#define STRATA_GU_FMTS(X) X(16) X(17) X(18) X(21) X(22) X(23) X(29) X(42) X(12) X(13) X(14) X(6) X(2) X(3) X(8) X(40) X(144) X(145) X(147) X(148) X(149)
-#else
-#define STRATA_GU_FMTS(X) X(16) X(17) X(18) X(21) X(22) X(23) X(29) X(42) X(12) X(13) X(6) X(2) X(3) X(8) X(40) X(144) X(145) X(147) X(148) X(149)
-#endif
-// Q5_K / Q6_K downs: Qwen3.6-35B-A3B (FF 512, whole 256-blocks per row); Flash-Next's FF 640 never selects them
-#ifdef STRATA_Q6K_EXPERTS
-#define STRATA_D_FMTS(X) X(20) X(23) X(42) X(7) X(6) X(2) X(3) X(8) X(13) X(14) X(40) X(144) X(146) X(147) X(148) X(149)
-#else
-#define STRATA_D_FMTS(X) X(20) X(23) X(42) X(7) X(6) X(2) X(3) X(8) X(13) X(40) X(144) X(146) X(147) X(148) X(149)
-#endif
-#define STRATA_MMVQ_FMTS(X) X(16) X(17) X(18) X(20) X(21) X(22) X(23) X(29) X(42) X(12) X(13) X(7) X(6) X(2) X(3) X(8) X(40) X(144) X(145) X(146) X(147) X(148) X(149)
 template<> struct Fmt<40> { static constexpr int qk = 64, ipb = 2, step = 4;     // NVFP4: 2 calls of 32 values
     __device__ static float dot(const void* v, const block_q8_1* y, int kbx, int iqs) { return vec_dot_nvfp4_q8_1(v, y, kbx, iqs); } };
 #include "fork/fork_fmt.cuh"   // Strata-DS4 fork code (docs/UPSTREAM_SYNC.md)
+// A CPU admission rule cannot drift from the actual instantiated block layout.
+#define STRATA_REG_CHECK(T) static_assert(Fmt<T>::qk == registry::block_size(T), "registry block size mismatch");
+STRATA_GU_FMTS(STRATA_REG_CHECK)
+STRATA_D_FMTS(STRATA_REG_CHECK)
+STRATA_GU_FMTS_FORK(STRATA_REG_CHECK)
+STRATA_D_FMTS_FORK(STRATA_REG_CHECK)
+#undef STRATA_REG_CHECK
 
 __device__ __forceinline__ float warp_sum(float v) {
 #pragma unroll
