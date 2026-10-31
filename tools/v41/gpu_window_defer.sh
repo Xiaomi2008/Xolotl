@@ -13,7 +13,7 @@ MODEL="/media/mal/SSD NVME/AI/V41-GSQ-1017-v3.gguf"
 ENGRAM="/media/Crucial1TB/V41-1017-Engram:/media/mal/SSD NVME/AI/V41-1017-Engram"
 RANK=/media/mal/NVME1TB/Models/rank-1017-v3.bin
 SIDECAR=/media/mal/NVME1TB/Models/V41-Sidecar/V41-MTP-Vision-1017.Q2_K.gguf
-IDS=/home/mal/AI/Strata-Backup/v41-dev/sweep-1127/p256.i32
+IDS=/home/mal/AI/Xolotl/private/v41-dev/sweep-1127/p256.i32
 TMP=/media/mal/NVME1TB/defer-ab; mkdir -p "$TMP"
 COMMON=(-m "$MODEL" --backend cuda --experts gpu --engram "$ENGRAM" --rank "$RANK" --ctx 32768 --arena-adapt --kv-fp4
         --route-bias 0.5 --route-bias-file 0.3 --arena-gib 64 --prompt-batch 12288 --temp 0)

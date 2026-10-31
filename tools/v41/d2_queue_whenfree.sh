@@ -1,11 +1,11 @@
 #!/bin/bash
 # Arm d2_queue.sh to run once the GPU has been IDLE for D2_IDLE_SECS (default 180) seconds.
 #   IDLE = no nvidia-smi compute apps AND memory.used < 2000 MiB (the desktop baseline is ~334 MiB).
-# Cancel:  touch ~/AI/Strata-Backup/v41-dev/d2/queue.CANCEL      (also cancels the queue between its runs)
-# or:      kill "$(cat ~/AI/Strata-Backup/v41-dev/d2/whenfree.pid)"
+# Cancel:  touch ~/AI/Xolotl/private/v41-dev/d2/queue.CANCEL      (also cancels the queue between its runs)
+# or:      kill "$(cat ~/AI/Xolotl/private/v41-dev/d2/whenfree.pid)"
 set -u
 DS=$HOME/AI/Xolotl
-W=$HOME/AI/Strata-Backup/v41-dev/d2; mkdir -p "$W"
+W=$HOME/AI/Xolotl/private/v41-dev/d2; mkdir -p "$W"
 IDLE_SECS=${D2_IDLE_SECS:-180}
 STEP=15
 LOG="$W/whenfree.log"
