@@ -114,12 +114,26 @@ def glm_parse_tool_call(body: str, schema=None):
     return F.ToolCall(name=name, arguments=args)
 
 
-F.call_end = glm_call_end
-# xolotl: the 0.1.44 parser treats a call opener as a call only when Qwen's `<function=` follows it (else it is
-# prose naming the format); this model's follower is GLM (`NAME<arg_key>`), so with FUNC_START = "" that guard always passes -
-# the pre-0.1.44 behaviour.  Only the opt-in tool_call_recovery reads FUNC_START otherwise (off here).
-F.FUNC_START = ""
-F.parse_tool_call = glm_parse_tool_call
+# 2026-11-01: since the upstream merge the parser only reads Qwen's `<tool_call><function=NAME><parameter=K>V` form (the call
+# regex is fixed), so the old patches (call_end / parse_tool_call / FUNC_START = "") left every GLM call as answer text.
+# GlmOutputParser (below) holds a call from <tool_call> to its </tool_call>, parses it GLM's way and hands the parser the
+# same call in the Qwen form - the approach upstream takes for DeepSeek's DSML (serve/dsml.py).
+
+
+def _partial(text: str, tag: str) -> int:
+    """Length of the longest end of `text` that is the start of `tag` (held: the tag may still be arriving)."""
+    for n in range(min(len(tag) - 1, len(text)), 0, -1):
+        if tag.startswith(text[-n:]):
+            return n
+    return 0
+
+
+def qwen_call_text(call) -> str:
+    parts = [f"{F.CALL_START}\n<function={call.name}>\n"]
+    for k, v in (call.arguments or {}).items():
+        parts.append(f"<parameter={k}>\n{v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)}\n</parameter>\n")
+    parts.append(f"</function>\n{F.CALL_END}")
+    return "".join(parts)
 _op_init = F.OutputParser.__init__
 
 
@@ -131,6 +145,54 @@ def _op_init_glm(self, *a, **k):
 
 F.OutputParser.__init__ = _op_init_glm
 S.OutputParser = F.OutputParser
+
+
+class GlmOutputParser(F.OutputParser):
+    """GLM calls -> the Qwen form before the parser (see qwen_call_text)."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.glm_buf = ""
+
+    def _glm_translate(self, final: bool) -> str:
+        out, b = "", self.glm_buf
+        while True:
+            i = b.find(F.CALL_START)
+            if i < 0:
+                keep = 0 if final else _partial(b, F.CALL_START)
+                out += b[:len(b) - keep]
+                b = b[len(b) - keep:]
+                break
+            out += b[:i]
+            rest = b[i + len(F.CALL_START):]
+            e = glm_call_end(rest)
+            if e < 0:                          # the call is still arriving (or never closed: passed on as it is)
+                if final:
+                    out += b[i:]
+                    b = ""
+                else:
+                    b = b[i:]
+                break
+            try:
+                out += qwen_call_text(glm_parse_tool_call(rest[:e]))
+            except ValueError:
+                out += b[i:i + len(F.CALL_START) + e + len(F.CALL_END)]
+            b = rest[e + len(F.CALL_END):]
+        self.glm_buf = b
+        return out
+
+    def feed(self, delta: str):
+        self.glm_buf += delta
+        text = self._glm_translate(False)
+        return super().feed(text) if text else []
+
+    def finish(self, *a, **k):
+        text = self._glm_translate(True)
+        out = super().feed(text) if text else []
+        return out + super().finish(*a, **k)
+
+
+S.OutputParser = GlmOutputParser       # Service.parser_cls (read at Service init)
 
 if __name__ == "__main__":
     for i, v in enumerate(sys.argv[:-1]):   # paths are the caller's; the server runs from the repo root

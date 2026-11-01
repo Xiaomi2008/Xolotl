@@ -16,5 +16,5 @@ export GGML_CUDA_GRAPH_MAX_TOKENS="${GGML_CUDA_GRAPH_MAX_TOKENS:-64}"
 # pre-merge build dir (build-glm-gpu) is still found so an old checkout of this script keeps working
 BUILD_DIR="${STRATA_BUILD_DIR:-$PWD/build-xolotl}"
 [ -x "$BUILD_DIR/glm_generate" ] || [ ! -x "$PWD/build-glm-gpu/glm_generate" ] || BUILD_DIR="$PWD/build-glm-gpu"
-exec flock "$LOCK" systemd-run --user --scope -q --unit="glm-serve-$$" -p MemoryMax=84G -p MemorySwapMax=0 \
+exec flock "$LOCK" systemd-run --user --scope -q --unit="glm-serve-$$" -p MemoryMax="${GLM_MEMORY_MAX:-100G}" -p MemorySwapMax=0 \
     "$BUILD_DIR/glm_generate" "$@"

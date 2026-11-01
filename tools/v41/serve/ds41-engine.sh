@@ -66,7 +66,7 @@ export STRATA_PRESTAGE_GIB="${STRATA_PRESTAGE_GIB:-1.5}"
 # -DSTRATA_ENABLE_CUDA=ON -DSTRATA_GGML_CUDA=ON -DGGML_CUDA=ON); preferred over build-xolotl when present (2026-11-01)
 if [ -z "${STRATA_BUILD_DIR:-}" ] && [ -x "$PWD/build-ds41/ds41_generate" ]; then BUILD_DIR="$PWD/build-ds41"; else BUILD_DIR="${STRATA_BUILD_DIR:-$PWD/build-xolotl}"; fi
 [ -x "$BUILD_DIR/ds41_generate" ] || [ ! -x "$PWD/build-ds4-gpu/ds41_generate" ] || BUILD_DIR="$PWD/build-ds4-gpu"
-# systemd-run --user applies the MemoryMax cap (DS41_MEMORY_MAX, default 84G) and the no-swap guard.  It does not exist in a container
+# systemd-run --user applies the MemoryMax cap (DS41_MEMORY_MAX, default 100G: arena 80 + engine + page cache on the 109 GiB box, 2026-11-01) and the no-swap guard.  It does not exist in a container
 # without a user manager (unprivileged LXC, some Docker setups; issue #60), so fall back to a plain exec there
 # rather than failing to start.  STRATA_NO_SCOPE=1 forces the fallback on a box that does have systemd.
 use_scope=1
@@ -76,7 +76,7 @@ if [ "$use_scope" = 1 ] && ! systemd-run --user --scope -q --unit="ds41-probe-$$
     echo "ds41-engine: systemd-run --user is unavailable here - running without the memory scope" >&2
 fi
 if [ "$use_scope" = 1 ]; then
-    exec flock "$LOCK" systemd-run --user --scope -q --unit="ds41-serve-$$" -p MemoryMax="${DS41_MEMORY_MAX:-84G}" -p MemorySwapMax=0 \
+    exec flock "$LOCK" systemd-run --user --scope -q --unit="ds41-serve-$$" -p MemoryMax="${DS41_MEMORY_MAX:-100G}" -p MemorySwapMax=0 \
         "$BUILD_DIR/ds41_generate" "$@"
 fi
 exec flock "$LOCK" "$BUILD_DIR/ds41_generate" "$@"
