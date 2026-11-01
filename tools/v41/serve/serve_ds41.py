@@ -42,8 +42,9 @@ _Tok = ST.Tokenizer
 
 
 class Ds41Tokenizer(_Tok):
-    def __init__(self, tokens, merges, token_types=None, pre="joyai-llm", **k):
-        super().__init__(tokens, merges, token_types, pre="joyai-llm", **k)
+    # special_ids: serve passes the pack's special-token ids as a 5th positional since the 2026-10-31 upstream merge
+    def __init__(self, tokens, merges, token_types=None, pre="joyai-llm", special_ids=None, **k):
+        super().__init__(tokens, merges, token_types, pre="joyai-llm", special_ids=special_ids, **k)
         self._literal = {i: t.encode("utf-8") for t, i in self.special_tokens.items()}
 
     def token_bytes(self, i: int) -> bytes:
@@ -341,13 +342,9 @@ def ds41_parse_tool_call(body: str, schema=None):
     return F.ToolCall(name=m.group(1), arguments=args)
 
 
-F.CALL_START, F.CALL_END = INVOKE_OPEN, INVOKE_CLOSE
-# xolotl: the 0.1.44 parser treats a call opener as a call only when Qwen's `<function=` follows it (else it is
-# prose naming the format); this model's follower is DSML (` name="...">`), so with FUNC_START = "" that guard always passes -
-# the pre-0.1.44 behaviour.  Only the opt-in tool_call_recovery reads FUNC_START otherwise (off here).
-F.FUNC_START = ""
-F.call_end = ds41_call_end
-F.parse_tool_call = ds41_parse_tool_call
+# 2026-11-01: the parser patches (CALL_START/CALL_END/FUNC_START/call_end/parse_tool_call = DSML) are OFF: since the upstream
+# merge serve/dsml.py's DsmlTranslator turns DSML into the Qwen form before the parser (Ds41OutputParser below), so the
+# parser must keep its Qwen spelling.  ds41_call_end / ds41_parse_tool_call stay for reference and the tests.
 # frontend.forced_call writes the forced-call (tool_choice) prefix in Qwen's `<function=NAME>` shape; V4.1's
 # DSML puts the name in the call OPENER itself, so a forced call has to be written in that shape here.
 # The opening is exactly what DeepSeek's encoder writes before an assistant message's tool call (encode_messages:
@@ -375,9 +372,8 @@ def ds41_forced_call(tool_choice, tools):
     return None
 
 
-F.forced_call = ds41_forced_call
-if hasattr(S, "forced_call"):
-    S.forced_call = ds41_forced_call
+# 2026-11-01: forced calls OFF here too - Service.set_family("deepseek41") sets _force_text = dsml.to_dsml_force, which turns
+# frontend.forced_call's Qwen opening into the same DSML opening ds41_forced_call writes (calls wrapper + invoke name="X">\n).
 _svc_prepare = S.Service.prepare
 
 
@@ -391,15 +387,11 @@ def _prepare_ds41(self, messages, tools, kwargs, max_new=None, force=None, **k):
 
 
 S.Service.prepare = _prepare_ds41
-_op_init, _op_feed, _op_finish = F.OutputParser.__init__, F.OutputParser.feed, F.OutputParser.finish
-WRAPPERS = (CALLS_OPEN, CALLS_CLOSE)
-
-
-def _op_init_ds41(self, *a, **k):
-    _op_init(self, *a, **k)
-    self.stream_tools = False          # the streaming scanner reads Qwen's <function=...> body
-    self.dsml_hold = ""
-    self.echo_check, self.echo_hold = True, ""
+# 2026-11-01: since the upstream merge the server reads DSML itself (serve/dsml.py DsmlOutputParser = DsmlTranslator ->
+# the Qwen-form OutputParser; Service.set_family("deepseek41") selects it).  The base OutputParser no longer reads DSML, so
+# the old patch on it (strip the calls wrappers, then the base parser) left every call as answer text.  This shim now
+# builds on DsmlOutputParser and only adds the wrap-up echo drop below.
+from serve import dsml as _dsml  # noqa: E402
 
 
 # 2026-10-19: after the server closes a thinking budget with REASONING_WRAP_UP, the 1017 sometimes repeats that sentence
@@ -431,34 +423,34 @@ def _drop_wrap_echo(self, evs):
     return out
 
 
-def _strip_wrappers(self, delta: str, final: bool) -> str:
-    """Drop <｜DSML｜ calls> / </｜DSML｜ calls> from the stream, holding a partial one until it is decided."""
-    buf = self.dsml_hold + delta
-    for w in WRAPPERS:
-        buf = buf.replace(w, "")
-    keep = 0 if final else self._hold(buf, WRAPPERS)
-    self.dsml_hold = buf[len(buf) - keep:] if keep else ""
-    return buf[:len(buf) - keep] if keep else buf
+class Ds41OutputParser(_dsml.DsmlOutputParser):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.echo_check, self.echo_hold = True, ""
+
+    def feed(self, delta: str):
+        return _drop_wrap_echo(self, super().feed(delta))
+
+    def finish(self, *a, **k):
+        out = _drop_wrap_echo(self, super().finish(*a, **k))
+        if self.echo_hold:             # ended while matching: the whole sentence = the echo, a part of it = real text
+            if self.echo_hold.strip() != WRAP_SENTENCE:
+                out.append(F.Event("content", self.echo_hold))
+            self.echo_hold = ""
+        return out
 
 
-def _op_feed_ds41(self, delta: str):
-    return _drop_wrap_echo(self, _op_feed(self, _strip_wrappers(self, delta, False)))
+S.OutputParser = Ds41OutputParser     # Service.parser_cls (read at Service init)
+_svc_set_family = S.Service.set_family
 
 
-def _op_finish_ds41(self, *a, **k):   # *a/**k: the 0.1.44 server's finish(reason=...)
-    out = _op_feed(self, _strip_wrappers(self, "", True)) if self.dsml_hold else []
-    out = _drop_wrap_echo(self, out + _op_finish(self, *a, **k))
-    if self.echo_hold:                 # ended while matching: the whole sentence = the echo, a part of it = real text
-        if self.echo_hold.strip() != WRAP_SENTENCE:
-            out.append(F.Event("content", self.echo_hold))
-        self.echo_hold = ""
-    return out
+def _set_family_ds41(self, family):
+    """This server only ever runs the V4.1 engine: keep the DS4.1 stop id / forced-call spelling and this parser."""
+    _svc_set_family(self, "deepseek41")
+    self.parser_cls = Ds41OutputParser
 
 
-F.OutputParser.__init__ = _op_init_ds41
-F.OutputParser.feed = _op_feed_ds41
-F.OutputParser.finish = _op_finish_ds41
-S.OutputParser = F.OutputParser
+S.Service.set_family = _set_family_ds41
 
 # ---- "parallel": N (#465's batch slots) on the DeepSeek-V4.1 engine.  ds41_generate --serve runs Strata's slot protocol
 # itself (BGEN / BADM / BT / BDONE / BSTOP / BYIELD: the server's generate_batched, unchanged) when started with

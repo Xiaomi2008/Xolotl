@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for serve_ds41.py (CPU, seconds).  Run under Strata's venv:
-  /home/mal/AI/Strata/.venv/bin/python tools/v41/serve/test_serve_ds41.py [TOKENIZER_DIR]
+  /home/mal/AI/Xolotl/.venv/bin/python tools/v41/serve/test_serve_ds41.py [TOKENIZER_DIR]
 TOKENIZER_DIR (export_tokenizer.py's output) enables the tokenizer and the HTTP tests (server --engine mock)."""
 import json
 import os
@@ -92,7 +92,7 @@ def dsml(calls):
 
 
 def run_parser(text, thinking, split):
-    p = F.OutputParser(thinking=thinking, tools=TOOLS)
+    p = D.Ds41OutputParser(thinking=thinking, tools=[t["function"] for t in TOOLS])   # flat, as the server passes them; = the server's parser_cls (2026-11-01: DSML via serve/dsml.py)
     ev = []
     for i in range(0, len(text), split):
         ev += p.feed(text[i:i + split])
